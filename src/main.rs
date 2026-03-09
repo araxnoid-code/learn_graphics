@@ -1,3 +1,4 @@
+mod testing;
 use std::sync::Arc;
 
 use pollster::FutureExt;
@@ -14,6 +15,8 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+
+use crate::testing::running;
 
 struct CoreMyApp {
     surface: Surface<'static>,
@@ -32,7 +35,6 @@ impl MyApp {
     fn ready_to_render(&self) -> bool {
         !self.core.is_none() && !self.window.is_none()
     }
-
     fn render(&self) -> Result<(), SurfaceError> {
         if !self.ready_to_render() {
             return Ok(());
@@ -210,14 +212,15 @@ impl ApplicationHandler for MyApp {
 }
 
 fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    event_loop.set_control_flow(ControlFlow::Wait);
+    running();
+    // let event_loop = EventLoop::new().unwrap();
+    // event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut my_app = MyApp {
-        window: None,
-        core: None,
-    };
-    event_loop
-        .run_app(&mut my_app)
-        .expect("Error To Running App");
+    // let mut my_app = MyApp {
+    //     window: None,
+    //     core: None,
+    // };
+    // event_loop
+    //     .run_app(&mut my_app)
+    //     .expect("Error To Running App");
 }
