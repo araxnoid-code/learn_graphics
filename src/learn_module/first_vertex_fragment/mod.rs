@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use pollster::FutureExt;
 use wgpu::{
-    Backends, Device, ExperimentalFeatures, Features, Instance, Limits, Operations, Queue,
-    RenderPassColorAttachment, Surface, SurfaceConfiguration, SurfaceError, TextureUsages,
+    Backends, BlendState, ColorTargetState, ColorWrites, Device, ExperimentalFeatures, Features,
+    FragmentState, Instance, Limits, Operations, PipelineCompilationOptions, PrimitiveState, Queue,
+    RenderPassColorAttachment, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError,
+    TextureUsages,
 };
 use winit::{
     application::ApplicationHandler, dpi::LogicalSize, event::WindowEvent, event_loop::EventLoop,
@@ -15,6 +17,7 @@ struct Core {
     queue: Queue,
     surface: Surface<'static>,
     surface_cfg: SurfaceConfiguration,
+    render_pipeline: RenderPipeline,
 }
 
 struct MyApp {
@@ -48,7 +51,7 @@ impl MyApp {
         );
 
         {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Create Render"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
@@ -69,6 +72,9 @@ impl MyApp {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+
+            render_pass.set_pipeline(&self.core.as_ref().unwrap().render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
         self.core
             .as_ref()
@@ -163,11 +169,67 @@ impl ApplicationHandler for MyApp {
                 usage: TextureUsages::RENDER_ATTACHMENT,
             };
 
+            let shaders = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Create Shaders"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            });
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Create Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Create Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shaders,
+                    entry_point: Some("vertex_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[],
+                        zero_initialize_workgroup_memory: false,
+                    },
+                    buffers: &[],
+                },
+                primitive: PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                    unclipped_depth: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(FragmentState {
+                    entry_point: Some("fragment_main"),
+                    compilation_options: PipelineCompilationOptions {
+                        constants: &[],
+                        zero_initialize_workgroup_memory: false,
+                    },
+                    module: &shaders,
+                    targets: &[Some(ColorTargetState {
+                        format: surface_cfg.format,
+                        blend: Some(BlendState::REPLACE),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+
             let core = Core {
                 device,
                 queue,
                 surface,
                 surface_cfg,
+                render_pipeline,
             };
 
             self.core = Some(core);
@@ -176,7 +238,7 @@ impl ApplicationHandler for MyApp {
     }
 }
 
-pub fn running() {
+pub fn first_vertex_fragment_running() {
     let event_loop = EventLoop::new().expect("error create event loop");
 
     let mut app = MyApp {
