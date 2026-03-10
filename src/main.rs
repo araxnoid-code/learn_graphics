@@ -1,7 +1,6 @@
-use crate::learn_module::first_vertex_fragment_running;
-
 mod learn_module;
+use crate::learn_module::buffer_vertex_runnning;
 
 fn main() {
-    first_vertex_fragment_running();
+    buffer_vertex_runnning();
 }
