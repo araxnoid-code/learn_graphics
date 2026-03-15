@@ -1,15 +1,62 @@
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 use wgpu::{
-    Backends, BlendState, ColorTargetState, ColorWrites, Device, ExperimentalFeatures,
-    FragmentState, Instance, Limits, Queue, RenderPassColorAttachment, RenderPipeline, Surface,
-    SurfaceConfiguration, SurfaceError, TextureUsages, VertexState,
+    Backends, BlendState, Buffer, BufferAddress, BufferUsages, ColorTargetState, ColorWrites,
+    Device, ExperimentalFeatures, FragmentState, Instance, Limits, Queue,
+    RenderPassColorAttachment, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError,
+    TextureUsages, VertexAttribute, VertexBufferLayout, VertexState, util::DeviceExt,
 };
 use winit::{
     application::ApplicationHandler, dpi::LogicalSize, event::WindowEvent, event_loop::EventLoop,
     window::Window,
 };
+
+#[repr(C)]
+#[derive(Debug, Pod, Zeroable, Clone, Copy)]
+struct MyVertexBuffer {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl MyVertexBuffer {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<MyVertexBuffer>() as BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                    shader_location: 0,
+                },
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                    format: wgpu::VertexFormat::Float32x3,
+                    shader_location: 1,
+                },
+            ],
+        }
+    }
+
+    pub fn create_rgb_triangle() -> Vec<MyVertexBuffer> {
+        vec![
+            MyVertexBuffer {
+                position: [0.5, -0.5, 1.],
+                color: [1., 0., 0.],
+            },
+            MyVertexBuffer {
+                position: [0., 0.5, 1.],
+                color: [0., 1., 0.],
+            },
+            MyVertexBuffer {
+                position: [-0.5, -0.5, 1.],
+                color: [0., 0., 1.],
+            },
+        ]
+    }
+}
 
 struct Core {
     device: Device,
@@ -17,6 +64,7 @@ struct Core {
     surface: Surface<'static>,
     surface_cfg: SurfaceConfiguration,
     render_pipeline: RenderPipeline,
+    vertex_buffer: Buffer,
 }
 
 struct MyApp {
@@ -84,6 +132,7 @@ impl MyApp {
             });
 
             render_pass.set_pipeline(&core.render_pipeline);
+            render_pass.set_vertex_buffer(0, core.vertex_buffer.slice(..));
             render_pass.draw(0..3, 0..1);
         }
         core.queue.submit(Some(encoder.finish()));
@@ -195,7 +244,7 @@ impl ApplicationHandler for MyApp {
                 label: Some("Create Render Pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: VertexState {
-                    buffers: &[],
+                    buffers: &[MyVertexBuffer::desc()],
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[],
                         zero_initialize_workgroup_memory: false,
@@ -235,12 +284,19 @@ impl ApplicationHandler for MyApp {
                 cache: None,
             });
 
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Create Vertex Buffer"),
+                contents: bytemuck::cast_slice(&MyVertexBuffer::create_rgb_triangle()),
+                usage: BufferUsages::VERTEX,
+            });
+
             let core = Core {
                 device,
                 queue,
                 surface,
                 surface_cfg,
                 render_pipeline,
+                vertex_buffer,
             };
             // wgpu
 

@@ -1,14 +1,18 @@
+struct MyVertex {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec3<f32>}
+
 struct VertexOutput {
-    @builtin(position) position: vec4<f32>}
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>}
 
 @vertex
 fn main_vertex(
-    @builtin(vertex_index) vertex_idx: u32
+    vertex_in: MyVertex
 ) -> VertexOutput {
     var out: VertexOutput;
-    let x = f32(1 - i32(vertex_idx)) * 0.5;
-    let y = (-1 + f32(vertex_idx & 1u) * 2) * 0.5;
-    out.position = vec4(x, y, 1, 1);
+    out.position = vec4(vertex_in.position, 1.);
+    out.color = vec4(vertex_in.color, 1.);
 
     return out;
 }
@@ -17,5 +21,5 @@ fn main_vertex(
 fn main_fragement(
     in: VertexOutput
 ) -> @location(0) vec4<f32> {
-    return vec4(0.5, 0.5, 0, 1.);
+    return in.color;
 }
