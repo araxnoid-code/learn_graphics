@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, vec};
 
 use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
@@ -40,8 +40,10 @@ impl MyVertexBuffer {
         }
     }
 
-    pub fn create_rgb_triangle() -> Vec<MyVertexBuffer> {
-        vec![
+    pub fn create_rgb_triangle() -> (Vec<MyVertexBuffer>, Vec<u16>) {
+        let indices = vec![0, 1, 2];
+
+        let vertex = vec![
             MyVertexBuffer {
                 position: [0.5, -0.5, 1.],
                 color: [1., 0., 0.],
@@ -54,7 +56,38 @@ impl MyVertexBuffer {
                 position: [-0.5, -0.5, 1.],
                 color: [0., 0., 1.],
             },
-        ]
+        ];
+
+        (vertex, indices)
+    }
+
+    pub fn create_rgb_square() -> (Vec<MyVertexBuffer>, Vec<u16>) {
+        let indices = vec![0, 1, 3, 1, 2, 3];
+
+        let vertex = vec![
+            MyVertexBuffer {
+                position: [0.5, -0.5, 1.],
+
+                color: [1., 0., 0.],
+            },
+            MyVertexBuffer {
+                position: [0.5, 0.5, 1.],
+
+                color: [0., 1., 0.],
+            },
+            MyVertexBuffer {
+                position: [-0.5, 0.5, 1.],
+
+                color: [0., 0., 1.],
+            },
+            MyVertexBuffer {
+                position: [-0.5, -0.5, 1.],
+
+                color: [0., 0., 1.],
+            },
+        ];
+
+        (vertex, indices)
     }
 }
 
@@ -65,6 +98,8 @@ struct Core {
     surface_cfg: SurfaceConfiguration,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
+    vertex_indices: Buffer,
+    indices_count: u32,
 }
 
 struct MyApp {
@@ -133,7 +168,9 @@ impl MyApp {
 
             render_pass.set_pipeline(&core.render_pipeline);
             render_pass.set_vertex_buffer(0, core.vertex_buffer.slice(..));
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_index_buffer(core.vertex_indices.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..core.indices_count, 0, 0..1);
+            // render_pass.draw(0..core.indices_count, 0..1);
         }
         core.queue.submit(Some(encoder.finish()));
         output.present();
@@ -284,10 +321,18 @@ impl ApplicationHandler for MyApp {
                 cache: None,
             });
 
+            let (vertexs, indices) = MyVertexBuffer::create_rgb_triangle();
+
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Create Vertex Buffer"),
-                contents: bytemuck::cast_slice(&MyVertexBuffer::create_rgb_triangle()),
+                contents: bytemuck::cast_slice(&vertexs),
                 usage: BufferUsages::VERTEX,
+            });
+
+            let vertex_indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Create Indices"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: BufferUsages::INDEX,
             });
 
             let core = Core {
@@ -297,6 +342,8 @@ impl ApplicationHandler for MyApp {
                 surface_cfg,
                 render_pipeline,
                 vertex_buffer,
+                vertex_indices,
+                indices_count: indices.len() as u32,
             };
             // wgpu
 
