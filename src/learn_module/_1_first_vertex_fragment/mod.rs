@@ -201,7 +201,6 @@ impl ApplicationHandler for MyApp {
                     conservative: false,
                     unclipped_depth: false,
                 },
-                depth_stencil: None,
                 multisample: wgpu::MultisampleState {
                     count: 1,
                     mask: !0,
@@ -220,6 +219,7 @@ impl ApplicationHandler for MyApp {
                         write_mask: ColorWrites::ALL,
                     })],
                 }),
+                depth_stencil: None,
                 multiview_mask: None,
                 cache: None,
             });

@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use pollster::FutureExt;
 use wgpu::{
-    Backends, Device, ExperimentalFeatures, Instance, Limits, Queue, RenderPassColorAttachment,
-    Surface, SurfaceConfiguration, SurfaceError, TextureUsages,
+    Backends, BlendState, ColorTargetState, ColorWrites, Device, ExperimentalFeatures,
+    FragmentState, Instance, Limits, Queue, RenderPassColorAttachment, RenderPipeline, Surface,
+    SurfaceConfiguration, SurfaceError, TextureUsages, VertexState,
 };
 use winit::{
     application::ApplicationHandler, dpi::LogicalSize, event::WindowEvent, event_loop::EventLoop,
@@ -15,6 +16,7 @@ struct Core {
     queue: Queue,
     surface: Surface<'static>,
     surface_cfg: SurfaceConfiguration,
+    render_pipeline: RenderPipeline,
 }
 
 struct MyApp {
@@ -59,7 +61,7 @@ impl MyApp {
                 });
 
         {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Create Begin Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     ops: wgpu::Operations {
@@ -81,7 +83,8 @@ impl MyApp {
                 multiview_mask: None,
             });
 
-            // render_pass.draw(vertices, instances);
+            render_pass.set_pipeline(&core.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
         core.queue.submit(Some(encoder.finish()));
         output.present();
@@ -176,13 +179,70 @@ impl ApplicationHandler for MyApp {
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 view_formats: vec![],
             };
-            // wgpu
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Create Pipeline"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+            let shaders = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Create Shaders"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders.wgsl").into()),
+            });
+
+            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Create Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[],
+                        zero_initialize_workgroup_memory: false,
+                    },
+                    entry_point: Some("main_vertex"),
+                    module: &shaders,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(FragmentState {
+                    entry_point: Some("main_fragement"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &[],
+                        zero_initialize_workgroup_memory: false,
+                    },
+                    module: &shaders,
+                    targets: &[Some(ColorTargetState {
+                        blend: Some(BlendState::REPLACE),
+                        format,
+                        write_mask: ColorWrites::all(),
+                    })],
+                }),
+                depth_stencil: None,
+                multiview_mask: None,
+                cache: None,
+            });
+
             let core = Core {
                 device,
                 queue,
                 surface,
                 surface_cfg,
+                render_pipeline,
             };
+            // wgpu
 
             self.window = Some(window);
             self.core = Some(core);
