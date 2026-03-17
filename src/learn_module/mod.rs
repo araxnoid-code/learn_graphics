@@ -6,3 +6,6 @@ pub use _2_buffer_vertex::*;
 
 mod _3_buffer_vertex_indices;
 pub use _3_buffer_vertex_indices::*;
+
+mod _3_buffer_vertex_indices_exam;
+pub use _3_buffer_vertex_indices_exam::*;

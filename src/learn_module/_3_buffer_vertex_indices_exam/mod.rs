@@ -1,29 +1,46 @@
-use std::{sync::Arc, vec};
+use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use pollster::FutureExt;
 use wgpu::{
-    Backends, BlendState, Buffer, BufferAddress, BufferUsages, ColorTargetState, ColorWrites,
-    Device, ExperimentalFeatures, FragmentState, Instance, Limits, Queue,
-    RenderPassColorAttachment, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError,
-    TextureUsages, VertexAttribute, VertexBufferLayout, VertexState, util::DeviceExt,
+    Backends, BlendState, Buffer, BufferAddress, BufferUsages, ColorWrites, Device,
+    ExperimentalFeatures, Features, FragmentState, Instance, Limits, MultisampleState, Operations,
+    PrimitiveState, Queue, RenderPassColorAttachment, RenderPipeline, Surface,
+    SurfaceConfiguration, SurfaceError, TextureUsages, TextureViewDescriptor, VertexAttribute,
+    VertexBufferLayout, VertexState, util::DeviceExt,
 };
 use winit::{
     application::ApplicationHandler, dpi::LogicalSize, event::WindowEvent, event_loop::EventLoop,
     window::Window,
 };
 
+pub struct Core {
+    device: Device,
+    queue: Queue,
+    surface: Surface<'static>,
+    surface_cfg: SurfaceConfiguration,
+    vertex_buffer: Buffer,
+    indices_buffer: Buffer,
+    indices_len: u32,
+    render_pipeline: RenderPipeline,
+}
+
+pub struct MyApp {
+    window: Option<Arc<Window>>,
+    core: Option<Core>,
+}
+
 #[repr(C)]
-#[derive(Debug, Pod, Zeroable, Clone, Copy)]
-struct MyVertexBuffer {
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct MyVertex {
     position: [f32; 3],
     color: [f32; 3],
 }
 
-impl MyVertexBuffer {
+impl MyVertex {
     pub fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
-            array_stride: std::mem::size_of::<MyVertexBuffer>() as BufferAddress,
+            array_stride: std::mem::size_of::<MyVertex>() as BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 VertexAttribute {
@@ -40,71 +57,29 @@ impl MyVertexBuffer {
         }
     }
 
-    pub fn create_rgb_triangle() -> (Vec<MyVertexBuffer>, Vec<u16>) {
-        let indices = vec![0, 1, 2];
-
-        let vertex = vec![
-            MyVertexBuffer {
-                position: [0.5, -0.5, 1.],
-                color: [1., 0., 0.],
-            },
-            MyVertexBuffer {
-                position: [0., 0.5, 1.],
-                color: [0., 1., 0.],
-            },
-            MyVertexBuffer {
-                position: [-0.5, -0.5, 1.],
-                color: [0., 0., 1.],
-            },
-        ];
-
-        (vertex, indices)
+    pub fn square() -> (Vec<MyVertex>, Vec<u16>) {
+        (
+            vec![
+                MyVertex {
+                    position: [0.5, -0.5, 1.],
+                    color: [1., 0., 0.],
+                },
+                MyVertex {
+                    position: [0.5, 0.5, 1.],
+                    color: [0., 1., 0.],
+                },
+                MyVertex {
+                    position: [-0.5, 0.5, 1.],
+                    color: [0., 0., 1.],
+                },
+                MyVertex {
+                    position: [-0.5, -0.5, 1.],
+                    color: [0., 1., 0.],
+                },
+            ],
+            vec![0, 1, 3, 1, 2, 3],
+        )
     }
-
-    pub fn create_rgb_square() -> (Vec<MyVertexBuffer>, Vec<u16>) {
-        let indices = vec![0, 1, 3, 1, 2, 3];
-
-        let vertex = vec![
-            MyVertexBuffer {
-                position: [0.5, -0.5, 1.],
-
-                color: [1., 0., 0.],
-            },
-            MyVertexBuffer {
-                position: [0.5, 0.5, 1.],
-
-                color: [0., 1., 0.],
-            },
-            MyVertexBuffer {
-                position: [-0.5, 0.5, 1.],
-
-                color: [0., 0., 1.],
-            },
-            MyVertexBuffer {
-                position: [-0.5, -0.5, 1.],
-
-                color: [0., 0., 1.],
-            },
-        ];
-
-        (vertex, indices)
-    }
-}
-
-struct Core {
-    device: Device,
-    queue: Queue,
-    surface: Surface<'static>,
-    surface_cfg: SurfaceConfiguration,
-    render_pipeline: RenderPipeline,
-    vertex_buffer: Buffer,
-    vertex_indices: Buffer,
-    indices_count: u32,
-}
-
-struct MyApp {
-    window: Option<Arc<Window>>,
-    core: Option<Core>,
 }
 
 impl MyApp {
@@ -124,57 +99,52 @@ impl MyApp {
     }
 
     pub fn render(&mut self) -> Result<(), SurfaceError> {
-        if let None = self.window {
-            return Ok(());
-        }
-        let window = self.window.as_ref().unwrap();
-        let core = self.core.as_ref().unwrap();
+        if let (Some(core), Some(window)) = (&self.core, &self.window) {
+            window.request_redraw();
 
-        window.request_redraw();
+            let output = core.surface.get_current_texture()?;
+            let view = output
+                .texture
+                .create_view(&TextureViewDescriptor::default());
 
-        let output = core.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::wgt::TextureViewDescriptor::default());
+            let mut encoder =
+                core.device
+                    .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
+                        label: Some("Create Encoder"),
+                    });
 
-        let mut encoder =
-            core.device
-                .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
-                    label: Some("Create Encoder"),
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Create Render Pass"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        ops: Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 1.,
+                                g: 1.,
+                                b: 1.,
+                                a: 1.,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
                 });
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Create Begin Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.,
-                            g: 1.,
-                            b: 1.,
-                            a: 1.,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-
-            render_pass.set_pipeline(&core.render_pipeline);
-            render_pass.set_vertex_buffer(0, core.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(core.vertex_indices.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..core.indices_count, 0, 0..1);
-            // render_pass.draw(0..core.indices_count, 0..1);
+                render_pass.set_pipeline(&core.render_pipeline);
+                render_pass.set_vertex_buffer(0, core.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(core.indices_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..core.indices_len, 0, 0..1);
+            }
+            core.queue.submit(Some(encoder.finish()));
+            output.present();
         }
-        core.queue.submit(Some(encoder.finish()));
-        output.present();
-
         Ok(())
     }
 }
@@ -188,7 +158,6 @@ impl ApplicationHandler for MyApp {
     ) {
         match event {
             WindowEvent::Resized(size) => self.resize(size.width, size.height),
-            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => match self.render() {
                 Ok(_) => (),
                 Err(SurfaceError::Lost | SurfaceError::Outdated) => {
@@ -197,6 +166,7 @@ impl ApplicationHandler for MyApp {
                 }
                 _ => (),
             },
+            WindowEvent::CloseRequested => event_loop.exit(),
             _ => (),
         }
     }
@@ -205,17 +175,12 @@ impl ApplicationHandler for MyApp {
         if let None = self.window {
             // window
             let size = (800, 500);
-            let attribute = Window::default_attributes()
-                .with_title("My Buffer Exam")
+            let attr = Window::default_attributes()
+                .with_title("MY APP")
                 .with_inner_size(LogicalSize::new(size.0, size.1));
-
-            let window = Arc::new(
-                event_loop
-                    .create_window(attribute)
-                    .expect("Error Create Window"),
-            );
+            let window = Arc::new(event_loop.create_window(attr).expect("Error Create Window"));
             // window
-
+            //
             // wgpu
             let instance = Instance::new(&wgpu::InstanceDescriptor {
                 backends: Backends::all(),
@@ -237,8 +202,8 @@ impl ApplicationHandler for MyApp {
 
             let (device, queue) = adapter
                 .request_device(&wgpu::wgt::DeviceDescriptor {
-                    label: Some("Create Device And Queue"),
-                    required_features: wgpu::Features::empty(),
+                    label: Some("Create Window"),
+                    required_features: Features::empty(),
                     required_limits: Limits::defaults(),
                     experimental_features: ExperimentalFeatures::disabled(),
                     memory_hints: wgpu::MemoryHints::MemoryUsage,
@@ -254,34 +219,33 @@ impl ApplicationHandler for MyApp {
                 .find(|f| f.is_srgb())
                 .copied()
                 .unwrap_or(surface_caps.formats[0]);
-
             let surface_cfg = SurfaceConfiguration {
                 width: size.0,
                 height: size.1,
-                format,
                 alpha_mode: surface_caps.alpha_modes[0],
                 desired_maximum_frame_latency: 2,
+                format,
                 present_mode: surface_caps.present_modes[0],
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 view_formats: vec![],
             };
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Create Pipeline"),
+                label: Some("Create Pipeline Layout"),
                 bind_group_layouts: &[],
                 immediate_size: 0,
             });
 
             let shaders = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Create Shaders"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
 
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Create Render Pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: VertexState {
-                    buffers: &[MyVertexBuffer::desc()],
+                    buffers: &[MyVertex::desc()],
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[],
                         zero_initialize_workgroup_memory: false,
@@ -289,49 +253,49 @@ impl ApplicationHandler for MyApp {
                     entry_point: Some("main_vertex"),
                     module: &shaders,
                 },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    unclipped_depth: false,
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    conservative: false,
-                },
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
                 fragment: Some(FragmentState {
-                    entry_point: Some("main_fragement"),
+                    entry_point: Some("main_fragment"),
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[],
                         zero_initialize_workgroup_memory: false,
                     },
                     module: &shaders,
-                    targets: &[Some(ColorTargetState {
-                        blend: Some(BlendState::REPLACE),
+                    targets: &[Some(wgpu::ColorTargetState {
                         format,
+                        blend: Some(BlendState::REPLACE),
                         write_mask: ColorWrites::all(),
                     })],
                 }),
+                primitive: PrimitiveState {
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Ccw,
+                    conservative: false,
+                    unclipped_depth: false,
+                },
                 depth_stencil: None,
+                multisample: MultisampleState {
+                    alpha_to_coverage_enabled: false,
+                    count: 1,
+                    mask: !0,
+                },
                 multiview_mask: None,
                 cache: None,
             });
 
-            let (vertexs, indices) = MyVertexBuffer::create_rgb_triangle();
+            let square_vertex = MyVertex::square();
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Create Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertexs),
+                label: Some("Create Buffer"),
+                contents: bytemuck::cast_slice(&square_vertex.0),
                 usage: BufferUsages::VERTEX,
             });
 
-            let vertex_indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Create Indices"),
-                contents: bytemuck::cast_slice(&indices),
+            let indices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Create Buffer"),
+                contents: bytemuck::cast_slice(&square_vertex.1),
                 usage: BufferUsages::INDEX,
             });
 
@@ -341,21 +305,22 @@ impl ApplicationHandler for MyApp {
                 surface,
                 surface_cfg,
                 render_pipeline,
+                indices_buffer,
                 vertex_buffer,
-                vertex_indices,
-                indices_count: indices.len() as u32,
+                indices_len: square_vertex.1.len() as u32,
             };
+
             // wgpu
 
+            // init
             self.window = Some(window);
             self.core = Some(core);
         }
     }
 }
 
-pub fn buffer_vertex_indices_running() {
-    let event_loop = EventLoop::new().expect("Error Init Event Loop");
+pub fn buffer_vertex_indices_exam() {
+    let event_loop = EventLoop::new().expect("Error Create Event Loop");
     let mut my_app = MyApp::init();
-
-    event_loop.run_app(&mut my_app).expect("Error Running App");
+    event_loop.run_app(&mut my_app).expect("Error Running App")
 }
